@@ -1,6 +1,7 @@
 # utils.py
 import logging
 
+from bs4 import BeautifulSoup
 from requests import RequestException
 
 from exceptions import ParserFindTagException
@@ -18,11 +19,18 @@ def get_response(session, url):
         )
 
 
+def get_soup(session, url):
+    response = get_response(session, url)
+    if response is None:
+        return
+    return BeautifulSoup(response.text, features="lxml")
+
+
 # Перехват ошибки поиска тегов.
-def find_tag(soup, tag, attrs=None):
-    searched_tag = soup.find(tag, attrs=(attrs or {}))
+def find_tag(soup, *args, **kwargs):
+    searched_tag = soup.find(*args, **kwargs)
     if searched_tag is None:
-        error_msg = f"Не найден тег {tag} {attrs}"
+        error_msg = f"Не найден тег {args[0]} {kwargs or None}"
         logging.error(error_msg, stack_info=True)
         raise ParserFindTagException(error_msg)
     return searched_tag

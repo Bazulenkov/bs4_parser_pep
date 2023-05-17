@@ -1,15 +1,16 @@
 import logging
 import re
+from typing import Tuple, List
 from urllib.parse import urljoin
 
-import requests_cache
 from bs4 import BeautifulSoup
+from requests_cache import CachedSession
 from tqdm import tqdm
 
 from configs import configure_argument_parser, configure_logging
-from constants import BASE_DIR, MAIN_DOC_URL
+from constants import BASE_DIR, MAIN_DOC_URL, PEPS_URL, EXPECTED_STATUS
 from outputs import control_output
-from utils import get_response, find_tag
+from utils import get_response, find_tag, get_soup
 
 
 def whats_new(session):
@@ -34,7 +35,7 @@ def whats_new(session):
     # Нужны все теги, поэтому используется метод find_all().
     sections_by_python = div_with_ul.find_all("li", attrs={"class": "toctree-l1"})
 
-    results = [("Ссылка на статью", "Заголовок", "Редактор, автор")]
+    results = [("Ссылка на статью", "Заголовок", "Редактор, Автор")]
     for section in tqdm(sections_by_python):
         version_a_tag = find_tag(section, "a")
         href = version_a_tag["href"]
@@ -119,10 +120,48 @@ def download(session):
     logging.info(f"Архив был загружен и сохранён: {archive_path}")
 
 
+def pep(session: CachedSession) -> List[Tuple[str, int]]:
+    count_peps = dict.fromkeys(EXPECTED_STATUS.keys(), 0)
+    except_statuses = []
+
+    soup = get_soup(session, PEPS_URL)
+    section_with_table = find_tag(soup, "section", {"id": "numerical-index"})
+    peps = section_with_table.tbody.find_all("tr")
+    for peep in tqdm(peps):
+        pep_int_url = find_tag(peep, "a")["href"]
+        pep_url = urljoin(PEPS_URL, pep_int_url)
+        soup = get_soup(session, pep_url)
+        field_rfc2822 = find_tag(soup, "dl", {"class": "rfc2822"})
+        status = find_tag(
+            field_rfc2822, string="Status"
+        ).parent.next_sibling.next_sibling
+
+        preview_status = peep.td.string[1:]
+        if status.text not in EXPECTED_STATUS[preview_status]:
+            except_statuses.append(
+                (pep_url, status.text, EXPECTED_STATUS[preview_status])
+            )
+            continue
+        count_peps[preview_status] += 1
+    if except_statuses:
+        for elem in except_statuses:
+            s = (
+                "Несовпадающие статусы:\n"
+                "{0}\n"
+                "Статус в карточке: {1}\n"
+                "Ожидаемые статусы: {2}"
+            ).format(*elem)
+            logging.info(s)
+    result = list(count_peps.items())
+    result.append(("Totals", len(peps)))
+    return result
+
+
 MODE_TO_FUNCTION = {
     "whats-new": whats_new,
     "latest-versions": latest_versions,
     "download": download,
+    "pep": pep,
 }
 
 
@@ -133,7 +172,7 @@ def main():
     args = arg_parser.parse_args()
     logging.info(f"Аргументы командной строки: {args}")
 
-    session = requests_cache.CachedSession()
+    session = CachedSession()
     if args.clear_cache:
         session.cache.clear()
 

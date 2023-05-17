@@ -13,7 +13,7 @@ def control_output(results, cli_args):
         # Вывод данных в PrettyTable.
         pretty_output(results)
     elif output == "file":
-        # Вывод данных в файл csv. Саму функцию напишем позже.
+        # Вывод данных в файл csv.
         file_output(results, cli_args)
     else:
         # Вывод данных по умолчанию — в терминал построчно.
